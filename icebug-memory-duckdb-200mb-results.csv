@@ -1,0 +1,2 @@
+engine,returncode,peak_rss_bytes,peak_rss_human,samples,build_seconds,directed,iterations,load_seconds,n_edges,n_nodes,pagerank_seconds,registry_items,score_count,total_seconds
+icebug,0,1591701504,1.48 GiB,323,26.737864017486572,False,1,5.666371583938599,69362378,3997962,0.2442033290863037,2,3997962,32.648438930511475

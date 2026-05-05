@@ -90,6 +90,16 @@ uv run python benchmark_pagerank_memory.py compare \
   --output icebug-memory-results.csv
 ```
 
+To constrain DuckDB buffering while loading the Arrow CSR arrays, pass
+`--duckdb-memory-limit`:
+
+```bash
+uv run python benchmark_pagerank_memory.py compare \
+  --engine icebug \
+  --duckdb-memory-limit 200MB \
+  --output icebug-memory-duckdb-200mb-results.csv
+```
+
 ### GraphFrames, 16g driver heap
 
 ```bash
@@ -129,7 +139,9 @@ maxIter = unset
 
 | Engine | Driver heap | Status | Peak RSS | Total time | PageRank time | Notes |
 |---|---:|---|---:|---:|---:|---|
-| icebug/NetworKit | n/a | ok | 3.32 GiB | 28.95s | 0.23s | converged in 1 iteration |
+| icebug/NetworKit | n/a | ok | 3.32 GiB | 28.93s | 0.25s | default DuckDB memory |
+| icebug/NetworKit | n/a | ok | 2.18 GiB | 30.86s | 0.28s | DuckDB `memory_limit=1GB` |
+| icebug/NetworKit | n/a | ok | 1.48 GiB | 32.65s | 0.24s | DuckDB `memory_limit=200MB` |
 | GraphFrames | 16g | ok | 17.50 GiB | 231.75s | 218.37s | Spark local mode |
 | GraphFrames | 8g | failed | 12.04 GiB | n/a | n/a | Java heap OOM |
 | GraphFrames | 4g | failed | 12.04 GiB | n/a | n/a | Java heap OOM |
@@ -138,7 +150,9 @@ Successful run details:
 
 | Engine | Load/prepare time | Build time | Nodes | Edges/result edges |
 |---|---:|---:|---:|---:|
-| icebug/NetworKit | 1.87s load | 26.85s | 3,997,962 | 69,362,378 |
+| icebug/NetworKit, default DuckDB memory | 1.88s load | 26.79s | 3,997,962 | 69,362,378 |
+| icebug/NetworKit, DuckDB `memory_limit=1GB` | 4.17s load | 26.42s | 3,997,962 | 69,362,378 |
+| icebug/NetworKit, DuckDB `memory_limit=200MB` | 5.67s load | 26.74s | 3,997,962 | 69,362,378 |
 | GraphFrames 16g | 7.16s prepare | 6.22s | 3,997,962 | 69,362,378 |
 
 The lower-memory GraphFrames attempts failed with:
@@ -156,6 +170,9 @@ Computed result CSVs:
 
 ```text
 icebug-memory-results.csv
+icebug-memory-results-rerun.csv
+icebug-memory-duckdb-1gb-results.csv
+icebug-memory-duckdb-200mb-results.csv
 graphframes-memory-results.csv
 graphframes-memory-4g-results.csv
 graphframes-memory-8g-results.csv
@@ -174,3 +191,8 @@ those Parquet files into Spark DataFrames and builds a `GraphFrame`.
 icebug/NetworKit constructs the graph directly from the Arrow CSR buffers.
 The benchmark keeps those Arrow buffers alive for the lifetime of the
 NetworKit graph.
+
+DuckDB's default memory behavior materially affects peak RSS while loading the
+Arrow arrays. Lowering DuckDB's memory limit reduced peak icebug RSS from
+`3.32 GiB` to `1.48 GiB`, with CSR load time increasing from `1.88s` to
+`5.67s`.

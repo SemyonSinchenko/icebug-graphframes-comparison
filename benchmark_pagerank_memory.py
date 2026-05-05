@@ -83,6 +83,8 @@ def run_child(mode: str, args: argparse.Namespace) -> dict[str, Any]:
         "--tol",
         str(args.tol),
     ]
+    if args.duckdb_memory_limit:
+        cmd.extend(["--duckdb-memory-limit", args.duckdb_memory_limit])
     if args.max_iter is not None:
         cmd.extend(["--max-iter", str(args.max_iter)])
     if mode == "graphframes":
@@ -146,12 +148,14 @@ def run_child(mode: str, args: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
-def load_csr(db_path: str) -> tuple[int, int, bool, Any, Any]:
+def load_csr(db_path: str, duckdb_memory_limit: str | None = None) -> tuple[int, int, bool, Any, Any]:
     import duckdb
     import pyarrow as pa
 
     con = duckdb.connect(db_path, read_only=True)
     try:
+        if duckdb_memory_limit:
+            con.execute("SET memory_limit = ?", [duckdb_memory_limit])
         n_nodes, n_edges, directed = con.execute(
             "SELECT n_nodes, n_edges, directed FROM livejournal_metadata"
         ).fetchone()
@@ -176,7 +180,7 @@ def run_icebug(args: argparse.Namespace) -> None:
     import networkit as nk
 
     t_start = time.time()
-    n_nodes, n_edges, directed, indptr, indices = load_csr(args.db)
+    n_nodes, n_edges, directed, indptr, indices = load_csr(args.db, args.duckdb_memory_limit)
     t_loaded = time.time()
 
     # Keep Arrow buffers alive while the NetworKit graph references CSR memory.
@@ -210,7 +214,11 @@ def run_icebug(args: argparse.Namespace) -> None:
     print("RESULT_JSON=" + json.dumps(result, sort_keys=True))
 
 
-def prepare_edges_parquet(db_path: str, parquet_dir: str) -> dict[str, Any]:
+def prepare_edges_parquet(
+    db_path: str,
+    parquet_dir: str,
+    duckdb_memory_limit: str | None = None,
+) -> dict[str, Any]:
     import duckdb
 
     destination = Path(parquet_dir)
@@ -220,6 +228,8 @@ def prepare_edges_parquet(db_path: str, parquet_dir: str) -> dict[str, Any]:
 
     con = duckdb.connect(db_path, read_only=True)
     try:
+        if duckdb_memory_limit:
+            con.execute("SET memory_limit = ?", [duckdb_memory_limit])
         n_nodes, n_edges, directed = con.execute(
             "SELECT n_nodes, n_edges, directed FROM livejournal_metadata"
         ).fetchone()
@@ -281,7 +291,7 @@ def run_graphframes(args: argparse.Namespace) -> None:
         temp_dir = tempfile.TemporaryDirectory(prefix="livejournal-graphframes-")
         parquet_dir = temp_dir.name
 
-    prep = prepare_edges_parquet(args.db, parquet_dir)
+    prep = prepare_edges_parquet(args.db, parquet_dir, args.duckdb_memory_limit)
     t_prepared = time.time()
 
     spark_builder = (
@@ -375,6 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def add_common(p: argparse.ArgumentParser) -> None:
         p.add_argument("--db", default=DEFAULT_DB)
+        p.add_argument("--duckdb-memory-limit")
         p.add_argument("--reset-probability", type=float, default=0.15)
         p.add_argument("--tol", type=float, default=0.01)
         p.add_argument("--max-iter", type=int)
