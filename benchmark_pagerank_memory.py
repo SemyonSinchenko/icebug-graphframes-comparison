@@ -87,7 +87,7 @@ def run_child(mode: str, args: argparse.Namespace) -> dict[str, Any]:
         cmd.extend(["--duckdb-memory-limit", args.duckdb_memory_limit])
     if args.max_iter is not None:
         cmd.extend(["--max-iter", str(args.max_iter)])
-    if mode == "graphframes":
+    if mode in {"graphframes", "graphframes-load"}:
         cmd.extend(
             [
                 "--spark-package",
@@ -279,9 +279,23 @@ def prepare_edges_parquet(
     }
 
 
-def run_graphframes(args: argparse.Namespace) -> None:
-    from graphframes import GraphFrame
+def build_spark(args: argparse.Namespace):
     from pyspark.sql import SparkSession
+
+    spark_builder = (
+        SparkSession.builder.appName(args.spark_app_name)
+        .master(args.spark_master)
+        .config("spark.driver.memory", args.spark_driver_memory)
+        .config("spark.sql.shuffle.partitions", str(args.spark_shuffle_partitions))
+        .config("spark.jars.packages", args.spark_package)
+    )
+    spark = spark_builder.getOrCreate()
+    spark.sparkContext.setLogLevel("WARN")
+    return spark
+
+
+def run_graphframes_load(args: argparse.Namespace) -> None:
+    from graphframes import GraphFrame
 
     t_start = time.time()
     temp_dir: tempfile.TemporaryDirectory[str] | None = None
@@ -294,15 +308,60 @@ def run_graphframes(args: argparse.Namespace) -> None:
     prep = prepare_edges_parquet(args.db, parquet_dir, args.duckdb_memory_limit)
     t_prepared = time.time()
 
-    spark_builder = (
-        SparkSession.builder.appName("livejournal-graphframes-pagerank")
-        .master(args.spark_master)
-        .config("spark.driver.memory", args.spark_driver_memory)
-        .config("spark.sql.shuffle.partitions", str(args.spark_shuffle_partitions))
-        .config("spark.jars.packages", args.spark_package)
-    )
-    spark = spark_builder.getOrCreate()
-    spark.sparkContext.setLogLevel("WARN")
+    args.spark_app_name = "livejournal-graphframes-load"
+    spark = build_spark(args)
+
+    try:
+        vertices = spark.read.parquet(prep["vertex_path"])
+        edges = spark.read.parquet(prep["edge_path"])
+        graph = GraphFrame(vertices, edges)
+        t_built = time.time()
+
+        vertex_count = graph.vertices.count()
+        edge_count = graph.edges.count()
+        t_counts = time.time()
+
+        degrees = graph.degrees
+        degree_count = degrees.count()
+        degree_sum = degrees.selectExpr("sum(degree) AS degree_sum").collect()[0]["degree_sum"]
+        t_degrees = time.time()
+    finally:
+        spark.stop()
+        if temp_dir is not None and not args.keep_edge_parquet:
+            temp_dir.cleanup()
+
+    result = {
+        **prep,
+        "prepare_seconds": t_prepared - t_start,
+        "build_seconds": t_built - t_prepared,
+        "count_seconds": t_counts - t_built,
+        "degree_seconds": t_degrees - t_counts,
+        "materialize_seconds": t_degrees - t_built,
+        "total_seconds": t_degrees - t_start,
+        "vertex_count": vertex_count,
+        "edge_count": edge_count,
+        "degree_count": degree_count,
+        "degree_sum": int(degree_sum),
+    }
+    print("RESULT_JSON=" + json.dumps(result, sort_keys=True))
+
+
+def run_graphframes(args: argparse.Namespace) -> None:
+    from graphframes import GraphFrame
+
+    t_start = time.time()
+    temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    if args.edge_parquet:
+        parquet_dir = args.edge_parquet
+    else:
+        temp_dir = tempfile.TemporaryDirectory(prefix="livejournal-graphframes-")
+        parquet_dir = temp_dir.name
+
+    prep = prepare_edges_parquet(args.db, parquet_dir, args.duckdb_memory_limit)
+    t_prepared = time.time()
+
+    args.spark_app_name = "livejournal-graphframes-pagerank"
+    spark = build_spark(args)
 
     try:
         vertices = spark.read.parquet(prep["vertex_path"])
@@ -392,7 +451,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     compare = subparsers.add_parser("compare")
     add_common(compare)
-    compare.add_argument("--engine", action="append", choices=("icebug", "graphframes"))
+    compare.add_argument("--engine", action="append", choices=("icebug", "graphframes", "graphframes-load"))
     compare.add_argument("--sample-interval", type=float, default=0.1)
     compare.add_argument("--output", default="pagerank-memory-results.csv")
     compare.add_argument("--edge-parquet")
@@ -416,6 +475,16 @@ def build_parser() -> argparse.ArgumentParser:
     graphframes.add_argument("--spark-driver-memory", default="16g")
     graphframes.add_argument("--spark-shuffle-partitions", type=int, default=200)
     graphframes.set_defaults(func=run_graphframes)
+
+    graphframes_load = subparsers.add_parser("graphframes-load")
+    add_common(graphframes_load)
+    graphframes_load.add_argument("--edge-parquet")
+    graphframes_load.add_argument("--keep-edge-parquet", action="store_true")
+    graphframes_load.add_argument("--spark-package", default=DEFAULT_SPARK_PACKAGE)
+    graphframes_load.add_argument("--spark-master", default="local[*]")
+    graphframes_load.add_argument("--spark-driver-memory", default="16g")
+    graphframes_load.add_argument("--spark-shuffle-partitions", type=int, default=200)
+    graphframes_load.set_defaults(func=run_graphframes_load)
 
     return parser
 

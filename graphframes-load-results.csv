@@ -1,0 +1,2 @@
+engine,returncode,peak_rss_bytes,peak_rss_human,samples,build_seconds,count_seconds,degree_count,degree_seconds,degree_sum,directed,edge_count,edge_path,materialize_seconds,n_edges,n_nodes,prepare_seconds,total_seconds,vertex_count,vertex_path
+graphframes-load,0,12850573312,11.97 GiB,243,5.7083985805511475,1.4602880477905273,3997962,9.520802021026611,138724756,False,69362378,/tmp/livejournal-graphframes-4w0tc3i4/edges.parquet,10.981090068817139,69362378,3997962,7.729346036911011,24.418834686279297,3997962,/tmp/livejournal-graphframes-4w0tc3i4/vertices.parquet

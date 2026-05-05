@@ -104,12 +104,33 @@ uv run python benchmark_pagerank_memory.py compare \
 
 ```bash
 uv run python benchmark_pagerank_memory.py compare \
+  --engine graphframes-load \
+  --spark-driver-memory 16g \
+  --output graphframes-load-results.csv
+```
+
+This builds `GraphFrame(v, e)` from Spark DataFrames and then forces Spark work
+with:
+
+```python
+graph.vertices.count()
+graph.edges.count()
+graph.degrees.count()
+graph.degrees.selectExpr("sum(degree)").collect()
+```
+
+### GraphFrames PageRank / Pregel-BSP mode
+
+These commands call the GraphFrames PageRank path. This is the relevant mode
+for Pregel/BSP-style graph algorithms. The `graphframes-load` mode above is a
+separate load/materialization benchmark.
+
+```bash
+uv run python benchmark_pagerank_memory.py compare \
   --engine graphframes \
   --spark-driver-memory 16g \
   --output graphframes-memory-results.csv
 ```
-
-### GraphFrames, 4g driver heap
 
 ```bash
 uv run python benchmark_pagerank_memory.py compare \
@@ -117,8 +138,6 @@ uv run python benchmark_pagerank_memory.py compare \
   --spark-driver-memory 4g \
   --output graphframes-memory-4g-results.csv
 ```
-
-### GraphFrames, 8g driver heap
 
 ```bash
 uv run python benchmark_pagerank_memory.py compare \
@@ -129,20 +148,17 @@ uv run python benchmark_pagerank_memory.py compare \
 
 ## Results
 
-All runs used the same graph and PageRank settings:
-
-```text
-resetProbability = 0.15
-tol = 0.01
-maxIter = unset
-```
+All rows use the same LiveJournal graph. icebug and GraphFrames PageRank rows
+use `resetProbability=0.15`, `tol=0.01`, and no `maxIter`. The
+`graphframes-load` row is a separate load/materialization benchmark.
 
 | Engine | Driver heap | Status | Peak RSS | Total time | PageRank time | Notes |
 |---|---:|---|---:|---:|---:|---|
 | icebug/NetworKit | n/a | ok | 3.32 GiB | 28.93s | 0.25s | default DuckDB memory |
 | icebug/NetworKit | n/a | ok | 2.18 GiB | 30.86s | 0.28s | DuckDB `memory_limit=1GB` |
 | icebug/NetworKit | n/a | ok | 1.48 GiB | 32.65s | 0.24s | DuckDB `memory_limit=200MB` |
-| GraphFrames | 16g | ok | 17.50 GiB | 231.75s | 218.37s | Spark local mode |
+| GraphFrames load/materialize | 16g | ok | 11.97 GiB | 24.42s | n/a | counts plus degree aggregation |
+| GraphFrames PageRank / Pregel-BSP | 16g | ok | 17.50 GiB | 231.75s | 218.37s | algorithm mode |
 | GraphFrames | 8g | failed | 12.04 GiB | n/a | n/a | Java heap OOM |
 | GraphFrames | 4g | failed | 12.04 GiB | n/a | n/a | Java heap OOM |
 
@@ -153,7 +169,18 @@ Successful run details:
 | icebug/NetworKit, default DuckDB memory | 1.88s load | 26.79s | 3,997,962 | 69,362,378 |
 | icebug/NetworKit, DuckDB `memory_limit=1GB` | 4.17s load | 26.42s | 3,997,962 | 69,362,378 |
 | icebug/NetworKit, DuckDB `memory_limit=200MB` | 5.67s load | 26.74s | 3,997,962 | 69,362,378 |
-| GraphFrames 16g | 7.16s prepare | 6.22s | 3,997,962 | 69,362,378 |
+| GraphFrames load/materialize 16g | 7.73s prepare | 5.71s setup, 10.98s materialize | 3,997,962 | 69,362,378 |
+
+GraphFrames load/materialization details:
+
+```text
+vertex count: 3,997,962
+edge count: 69,362,378
+degree rows: 3,997,962
+degree sum: 138,724,756
+count time: 1.46s
+degree aggregation time: 9.52s
+```
 
 The lower-memory GraphFrames attempts failed with:
 
@@ -173,6 +200,7 @@ icebug-memory-results.csv
 icebug-memory-results-rerun.csv
 icebug-memory-duckdb-1gb-results.csv
 icebug-memory-duckdb-200mb-results.csv
+graphframes-load-results.csv
 graphframes-memory-results.csv
 graphframes-memory-4g-results.csv
 graphframes-memory-8g-results.csv
@@ -187,6 +215,17 @@ the end of the run unless `--keep-edge-parquet` is passed.
 GraphFrames does not consume the CSR arrays directly. The benchmark first
 exports vertices and edges from the CSR DuckDB tables to Parquet, then loads
 those Parquet files into Spark DataFrames and builds a `GraphFrame`.
+
+There are two GraphFrames modes:
+
+```text
+graphframes      PageRank / Pregel-BSP-style algorithm benchmark
+graphframes-load GraphFrame load/materialization benchmark
+```
+
+`graphframes-load` does not call PageRank. It creates `GraphFrame(v, e)` and
+then forces Spark execution with counts and degree aggregation so lazy DataFrame
+planning does not hide the load and graph materialization cost.
 
 icebug/NetworKit constructs the graph directly from the Arrow CSR buffers.
 The benchmark keeps those Arrow buffers alive for the lifetime of the
