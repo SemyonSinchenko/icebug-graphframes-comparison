@@ -346,6 +346,95 @@ def run_graphframes_load(args: argparse.Namespace) -> None:
     print("RESULT_JSON=" + json.dumps(result, sort_keys=True))
 
 
+def run_graphframes_v2(args: argparse.Namespace) -> None:
+    from graphframes import GraphFrame
+    from graphframes.lib import Pregel
+    from pyspark.sql import functions as F
+
+    t_start = time.time()
+    temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    if args.edge_parquet:
+        parquet_dir = args.edge_parquet
+    else:
+        temp_dir = tempfile.TemporaryDirectory(prefix="livejournal-graphframes-")
+        parquet_dir = temp_dir.name
+
+    prep = prepare_edges_parquet(args.db, parquet_dir, args.duckdb_memory_limit)
+    t_prepared = time.time()
+
+    args.spark_app_name = "livejournal-graphframes-pagerank"
+    spark = build_spark(args)
+
+    try:
+        vertices = spark.read.parquet(prep["vertex_path"])
+        edges = spark.read.parquet(prep["edge_path"])
+        graph = GraphFrame(vertices, edges)
+        t_built = time.time()
+
+        # We need to add outDegree as an attribute to adjust ranks
+        out_degrees = graph.outDegrees
+        graph = GraphFrame(out_degrees, edges)
+
+        pagerank_kwargs: dict[str, Any] = {
+            "resetProbability": args.reset_probability,
+            "tol": args.tol,
+        }
+        if args.max_iter is not None:
+            pagerank_kwargs = {
+                "resetProbability": args.reset_probability,
+                "maxIter": args.max_iter,
+            }
+        # is it known? can I use a constant here instead of count?
+        num_vertices = vertices.count()
+        damping_factor = args.reset_probability
+        tol = args.tol
+
+        # Expression to compute the updated rank
+        pr_expression = F.coalesce(Pregel.msg(), F.lit(0.0)) * F.lit(1.0 - damping_factor) + F.lit(damping_factor / num_vertices)
+
+        # Since it is the simplest PageRank over directed Graph it is trivial for Pregel
+        result = (
+            graph
+            .pregel
+            .withVertexColumn(
+                "rank",
+                F.lit(1.0) / F.lit(num_vertices), # initial PR value
+                pr_expression,
+            )
+            .sendMsgToDst(Pregel.src("rank") / Pregel.src("outDegree"))
+            .aggMsgs(F.sum(Pregel.msg()))
+            .setMaxIter(100_000) # just something big
+            .setSkipMessagesFromNonActiveVertices(False) # otherwise it won't work
+            .setStopIfAllNonActiveVertices(True) # pregel-like vertex voting
+            .setUseLocalCheckpoints(True) # due to age and adoption GraphFrames has terrible defaults and we cannot just change them
+            .setUpdateActiveVertexExpression(F.abs(pr_expression - F.col("rank")) > F.lit(tol)) # simple | old - new | > tol
+            .run()
+        )
+
+        # Why to count edges again? For spark it is equal to re-read from disk
+        score_count = result.count()
+        # edge_count = results.edges.count()
+
+        # Pregel calls return persisted DataFrames in GF, so better to release
+        _ = result.unpersist()
+        t_done = time.time()
+    finally:
+        spark.stop()
+        if temp_dir is not None and not args.keep_edge_parquet:
+            temp_dir.cleanup()
+
+    result = {
+        **prep,
+        "prepare_seconds": t_prepared - t_start,
+        "build_seconds": t_built - t_prepared,
+        "pagerank_seconds": t_done - t_built,
+        "total_seconds": t_done - t_start,
+        "score_count": score_count,
+    }
+    print("RESULT_JSON=" + json.dumps(result, sort_keys=True))
+
+
+
 def run_graphframes(args: argparse.Namespace) -> None:
     from graphframes import GraphFrame
 
@@ -474,7 +563,7 @@ def build_parser() -> argparse.ArgumentParser:
     graphframes.add_argument("--spark-master", default="local[*]")
     graphframes.add_argument("--spark-driver-memory", default="16g")
     graphframes.add_argument("--spark-shuffle-partitions", type=int, default=200)
-    graphframes.set_defaults(func=run_graphframes)
+    graphframes.set_defaults(func=run_graphframes_v2)
 
     graphframes_load = subparsers.add_parser("graphframes-load")
     add_common(graphframes_load)
