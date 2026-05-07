@@ -98,8 +98,6 @@ def run_child(mode: str, args: argparse.Namespace) -> dict[str, Any]:
                 args.spark_driver_memory,
                 "--spark-shuffle-partitions",
                 str(args.spark_shuffle_partitions),
-                "spark.ui.enabled", # it adds some overhead that we barely want to measure
-                "false",
             ]
         )
         if args.edge_parquet:

@@ -57,6 +57,8 @@ jobs:
             --output ci-icebug-results.csv
 
       - name: Run graphframes scenario
+        env:
+          SPARK_TESTING: "1"
         run: |
           uv run python benchmark_pagerank_memory.py compare \
             --engine graphframes \
