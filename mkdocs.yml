@@ -1,0 +1,7 @@
+site_name: Icebug vs GraphFrames
+site_description: Minimal benchmark site for Icebug and GraphFrames comparison
+theme:
+  name: mkdocs
+nav:
+  - Home: index.md
+  - Results: results.md

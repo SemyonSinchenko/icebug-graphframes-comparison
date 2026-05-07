@@ -1,0 +1,17 @@
+# Results
+
+Generated from CI benchmark runs.
+
+| Scenario | Status | Peak RSS | Total Time (s) |
+|---|---|---:|---:|
+{% for row in rows -%}
+| {{ row.scenario }} | {{ row.status }} | {{ row.peak_rss_human }} | {{ row.total_seconds }} |
+{% endfor %}
+
+## Memory Usage Comparison
+
+![Memory usage comparison](assets/memory_usage_comparison.png)
+
+## Runtime Comparison
+
+![Runtime comparison](assets/runtime_comparison.png)
