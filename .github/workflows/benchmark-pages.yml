@@ -62,7 +62,7 @@ jobs:
         run: |
           uv run python benchmark_pagerank_memory.py compare \
             --engine graphframes \
-            --duckdb-memory-limit 1024MB \
+            --duckdb-memory-limit 2048MB \
             --spark-driver-memory 4G \
             --output ci-graphframes-results.csv
 

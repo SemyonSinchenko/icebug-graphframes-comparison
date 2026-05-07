@@ -8,6 +8,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 def _as_float(value: str | None) -> float | None:
@@ -28,6 +29,9 @@ def load_row(path: Path, scenario_name: str) -> dict[str, str]:
 
     status = "ok" if row.get("returncode") == "0" else "failed"
     total_seconds = _as_float(row.get("total_seconds"))
+    prepare_seconds = _as_float(row.get("prepare_seconds"))
+    if prepare_seconds is None:
+        prepare_seconds = _as_float(row.get("load_seconds"))
     peak_rss_human = row.get("peak_rss_human", "n/a")
     peak_rss_bytes = _as_float(row.get("peak_rss_bytes")) or 0.0
 
@@ -37,6 +41,8 @@ def load_row(path: Path, scenario_name: str) -> dict[str, str]:
         "peak_rss_human": peak_rss_human,
         "peak_rss_bytes": f"{peak_rss_bytes}",
         "peak_rss_gib": f"{peak_rss_bytes / (1024 ** 3)}",
+        "prepare_seconds": f"{prepare_seconds:.2f}" if prepare_seconds is not None else "n/a",
+        "prepare_seconds_raw": "" if prepare_seconds is None else f"{prepare_seconds}",
         "total_seconds": f"{total_seconds:.2f}" if total_seconds is not None else "n/a",
         "total_seconds_raw": "" if total_seconds is None else f"{total_seconds}",
     }
@@ -76,6 +82,49 @@ def plot_metric(rows: list[dict[str, str]], value_key: str, title: str, ylabel: 
     plt.close(fig)
 
 
+def plot_time_grouped(rows: list[dict[str, str]], output_path: Path) -> None:
+    labels = [row["scenario"] for row in rows]
+    total_values: list[float] = []
+    prepare_values: list[float] = []
+
+    for row in rows:
+        total_raw = row.get("total_seconds_raw", "")
+        prepare_raw = row.get("prepare_seconds_raw", "")
+        try:
+            total_values.append(float(total_raw))
+        except ValueError:
+            total_values.append(0.0)
+        try:
+            prepare_values.append(float(prepare_raw))
+        except ValueError:
+            prepare_values.append(0.0)
+
+    x = np.arange(len(labels))
+    width = 0.36
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    total_bars = ax.bar(x - width / 2.0, total_values, width, label="Total time", color="#2f6f5f")
+    prepare_bars = ax.bar(x + width / 2.0, prepare_values, width, label="Prepare time", color="#b45a3c")
+
+    ax.set_title("Runtime Comparison")
+    ax.set_ylabel("Time (seconds)")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.grid(axis="y", linestyle="--", alpha=0.3)
+    ax.set_axisbelow(True)
+    ax.legend()
+
+    for bars in (total_bars, prepare_bars):
+        for bar in bars:
+            value = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width() / 2.0, value, f"{value:.2f}", ha="center", va="bottom", fontsize=9)
+
+    fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--icebug-csv", required=True)
@@ -105,13 +154,7 @@ def main() -> None:
         ylabel="Peak RSS (GiB)",
         output_path=assets_dir / "memory_usage_comparison.png",
     )
-    plot_metric(
-        rows,
-        value_key="total_seconds_raw",
-        title="Runtime Comparison",
-        ylabel="Total time (seconds)",
-        output_path=assets_dir / "runtime_comparison.png",
-    )
+    plot_time_grouped(rows, output_path=assets_dir / "runtime_comparison.png")
 
 
 if __name__ == "__main__":
