@@ -98,6 +98,8 @@ def run_child(mode: str, args: argparse.Namespace) -> dict[str, Any]:
                 args.spark_driver_memory,
                 "--spark-shuffle-partitions",
                 str(args.spark_shuffle_partitions),
+                "spark.ui.enabled", # it adds some overhead that we barely want to measure
+                "false",
             ]
         )
         if args.edge_parquet:
@@ -290,7 +292,7 @@ def build_spark(args: argparse.Namespace):
         .config("spark.jars.packages", args.spark_package)
     )
     spark = spark_builder.getOrCreate()
-    spark.sparkContext.setLogLevel("WARN")
+    spark.sparkContext.setLogLevel("ERROR")
     return spark
 
 

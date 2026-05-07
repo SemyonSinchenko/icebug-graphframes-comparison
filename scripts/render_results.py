@@ -36,6 +36,7 @@ def load_row(path: Path, scenario_name: str) -> dict[str, str]:
         "status": status,
         "peak_rss_human": peak_rss_human,
         "peak_rss_bytes": f"{peak_rss_bytes}",
+        "peak_rss_gib": f"{peak_rss_bytes / (1024 ** 3)}",
         "total_seconds": f"{total_seconds:.2f}" if total_seconds is not None else "n/a",
         "total_seconds_raw": "" if total_seconds is None else f"{total_seconds}",
     }
@@ -84,8 +85,8 @@ def main() -> None:
     parser.add_argument("--assets-dir", default="docs/assets")
     args = parser.parse_args()
 
-    icebug = load_row(Path(args.icebug_csv), "compare + engine icebug")
-    graphframes = load_row(Path(args.graphframes_csv), "compare + engine graphframes")
+    icebug = load_row(Path(args.icebug_csv), "icebug")
+    graphframes = load_row(Path(args.graphframes_csv), "graphframes")
     rows = [icebug, graphframes]
 
     template_path = Path(args.template)
@@ -99,9 +100,9 @@ def main() -> None:
     assets_dir = Path(args.assets_dir)
     plot_metric(
         rows,
-        value_key="peak_rss_bytes",
+        value_key="peak_rss_gib",
         title="Memory Usage Comparison",
-        ylabel="Peak RSS (bytes)",
+        ylabel="Peak RSS (GiB)",
         output_path=assets_dir / "memory_usage_comparison.png",
     )
     plot_metric(
