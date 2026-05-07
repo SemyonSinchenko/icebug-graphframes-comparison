@@ -1,0 +1,96 @@
+name: Benchmark and Publish Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  benchmark-and-build:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUNBUFFERED: "1"
+      DATASET_XZ_URL: "https://huggingface.co/datasets/ladybugdb/livejournal-4m-35m/resolve/main/livejournal-csr.duckdb.xz"
+      DATASET_XZ_PATH: "livejournal-csr.duckdb.xz"
+      DATASET_DB_PATH: "livejournal-csr.duckdb"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Java (JDK 21)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --group docs
+
+      - name: Download and unpack benchmark data
+        run: |
+          curl -L "$DATASET_XZ_URL" -o "$DATASET_XZ_PATH"
+          xz -d -f "$DATASET_XZ_PATH"
+          test -f "$DATASET_DB_PATH"
+
+      - name: Run icebug scenario
+        run: |
+          uv run python benchmark_pagerank_memory.py compare \
+            --engine icebug \
+            --duckdb-memory-limit 200MB \
+            --output ci-icebug-results.csv
+
+      - name: Run graphframes scenario
+        run: |
+          uv run python benchmark_pagerank_memory.py compare \
+            --engine graphframes \
+            --duckdb-memory-limit 1024MB \
+            --spark-driver-memory 4G \
+            --output ci-graphframes-results.csv
+
+      - name: Generate results markdown and plots
+        run: |
+          uv run python scripts/render_results.py \
+            --icebug-csv ci-icebug-results.csv \
+            --graphframes-csv ci-graphframes-results.csv \
+            --template templates/results.md.j2 \
+            --results-md docs/results.md \
+            --assets-dir docs/assets
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build MkDocs site
+        run: uv run mkdocs build --strict
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: benchmark-and-build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
