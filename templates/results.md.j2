@@ -2,10 +2,10 @@
 
 Generated from CI benchmark runs.
 
-| Scenario | Status | Peak RSS | Prepare Time (s) | Run Time (s) | Total Time (s) |
-|---|---|---:|---:|---:|---:|
+| Scenario | Status | Peak RSS | Prepare Time (s) | Total Time (s) |
+|---|---|---:|---:|---:|
 {% for row in rows -%}
-| {{ row.scenario }} | {{ row.status }} | {{ row.peak_rss_human }} | {{ row.prepare_seconds }} | {{ row.run_seconds }} | {{ row.total_seconds }} |
+| {{ row.scenario }} | {{ row.status }} | {{ row.peak_rss_human }} | {{ row.prepare_seconds }} | {{ row.total_seconds }} |
 {% endfor %}
 
 ## Memory Usage Comparison

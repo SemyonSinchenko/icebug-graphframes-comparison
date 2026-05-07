@@ -32,7 +32,6 @@ def load_row(path: Path, scenario_name: str) -> dict[str, str]:
     prepare_seconds = _as_float(row.get("prepare_seconds"))
     if prepare_seconds is None:
         prepare_seconds = _as_float(row.get("load_seconds"))
-    run_seconds = _as_float(row.get("pagerank_seconds"))
     peak_rss_human = row.get("peak_rss_human", "n/a")
     peak_rss_bytes = _as_float(row.get("peak_rss_bytes")) or 0.0
 
@@ -44,8 +43,6 @@ def load_row(path: Path, scenario_name: str) -> dict[str, str]:
         "peak_rss_gib": f"{peak_rss_bytes / (1024 ** 3)}",
         "prepare_seconds": f"{prepare_seconds:.2f}" if prepare_seconds is not None else "n/a",
         "prepare_seconds_raw": "" if prepare_seconds is None else f"{prepare_seconds}",
-        "run_seconds": f"{run_seconds:.2f}" if run_seconds is not None else "n/a",
-        "run_seconds_raw": "" if run_seconds is None else f"{run_seconds}",
         "total_seconds": f"{total_seconds:.2f}" if total_seconds is not None else "n/a",
         "total_seconds_raw": "" if total_seconds is None else f"{total_seconds}",
     }
@@ -88,26 +85,26 @@ def plot_metric(rows: list[dict[str, str]], value_key: str, title: str, ylabel: 
 def plot_time_grouped(rows: list[dict[str, str]], output_path: Path) -> None:
     labels = [row["scenario"] for row in rows]
     prepare_values: list[float] = []
-    run_values: list[float] = []
+    total_values: list[float] = []
 
     for row in rows:
         prepare_raw = row.get("prepare_seconds_raw", "")
-        run_raw = row.get("run_seconds_raw", "")
+        total_raw = row.get("total_seconds_raw", "")
         try:
             prepare_values.append(float(prepare_raw))
         except ValueError:
             prepare_values.append(0.0)
         try:
-            run_values.append(float(run_raw))
+            total_values.append(float(total_raw))
         except ValueError:
-            run_values.append(0.0)
+            total_values.append(0.0)
 
     x = np.arange(len(labels))
     width = 0.36
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
     prepare_bars = ax.bar(x - width / 2.0, prepare_values, width, label="Prepare time", color="#2f6f5f")
-    run_bars = ax.bar(x + width / 2.0, run_values, width, label="Run time", color="#b45a3c")
+    total_bars = ax.bar(x + width / 2.0, total_values, width, label="Total time", color="#b45a3c")
 
     ax.set_title("Runtime Comparison")
     ax.set_ylabel("Time (seconds)")
@@ -117,7 +114,7 @@ def plot_time_grouped(rows: list[dict[str, str]], output_path: Path) -> None:
     ax.set_axisbelow(True)
     ax.legend()
 
-    for bars in (prepare_bars, run_bars):
+    for bars in (prepare_bars, total_bars):
         for bar in bars:
             value = bar.get_height()
             ax.text(bar.get_x() + bar.get_width() / 2.0, value, f"{value:.2f}", ha="center", va="bottom", fontsize=9)
